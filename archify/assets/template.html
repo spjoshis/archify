@@ -4926,6 +4926,7 @@
         </div>
         <div class="export-menu-section" role="group" aria-label="{{i18n:viewer.export.share}}">
           <span class="export-menu-heading" aria-hidden="true">{{i18n:viewer.export.share}}</span>
+          <button data-action="page" type="button" role="menuitem" tabindex="-1"><span class="export-item-copy"><strong>{{i18n:viewer.export.fullPage}}</strong><small class="hint">Full page PNG</small></span></button>
           <button data-format="share-card" type="button" role="menuitem" tabindex="-1"><span class="export-item-copy"><strong>{{i18n:viewer.export.shareCard}}</strong><small class="hint">1200&times;630 PNG</small></span></button>
           <button data-action="route-share-card" type="button" role="menuitem" tabindex="-1" hidden disabled><span class="export-item-copy"><strong>{{i18n:viewer.export.routeShareCard}}</strong><small class="hint">1200&times;630 PNG</small></span></button>
           <button data-action="reach-share-card" type="button" role="menuitem" tabindex="-1" hidden disabled><span class="export-item-copy"><strong>{{i18n:viewer.export.reachShareCard}}</strong><small class="hint">1200&times;630 PNG</small></span></button>
@@ -6901,6 +6902,159 @@
         });
       }
 
+      function renderPageExport() {
+        var svg = document.querySelector('.diagram-container svg');
+        var vb = svg.viewBox.baseVal;
+        var sourceScale = Math.min(2, pickSafeScale(vb.width, vb.height));
+        var data = serializeSvg(sourceScale);
+        if (!data.canonicalStateClean) return Promise.reject(exportError('viewer.export.error.viewerState'));
+        var svgBlob = new Blob([data.svgString], { type: 'image/svg+xml;charset=utf-8' });
+        var svgUrl = URL.createObjectURL(svgBlob);
+
+        return new Promise(function (resolve, reject) {
+          var img = new Image();
+          img.onload = function () {
+            try {
+              var computed = getComputedStyle(document.documentElement);
+              var bg = computed.getPropertyValue('--bg').trim() || currentBg();
+              var text = computed.getPropertyValue('--text').trim() || '#ffffff';
+              var muted = computed.getPropertyValue('--text-muted').trim() || '#94a3b8';
+              var titleNode = document.querySelector('.header h1');
+              var subtitleNode = document.querySelector('.header .subtitle');
+              var title = titleNode ? titleNode.textContent : document.title;
+              var subtitle = subtitleNode ? subtitleNode.textContent : '';
+
+              var PAGE_WIDTH = 3200;
+              var PAGE_PADDING = 60;
+              var TITLE_SPACING = 80;
+              var CARDS_SPACING = 60;
+              var CONTENT_WIDTH = PAGE_WIDTH - PAGE_PADDING * 2;
+
+              var titleHeight = 60;
+              var subtitleHeight = subtitle ? 30 : 0;
+              var headerTotalHeight = titleHeight + subtitleHeight + TITLE_SPACING;
+
+              var fit = (CONTENT_WIDTH) / data.width;
+              var diagramWidth = data.width * fit;
+              var diagramHeight = data.height * fit;
+
+              var cardsHeight = 0;
+              var cardElements = document.querySelectorAll('.cards .card');
+              if (cardElements.length > 0) {
+                cardsHeight = 120;
+              }
+
+              var totalHeight = headerTotalHeight + diagramHeight + (cardsHeight ? CARDS_SPACING + cardsHeight : 0) + PAGE_PADDING * 2;
+              var canvas = document.createElement('canvas');
+              canvas.width = PAGE_WIDTH;
+              canvas.height = Math.ceil(totalHeight);
+              var ctx = canvas2dOrThrow(canvas, 'Full diagram page');
+
+              ctx.fillStyle = bg;
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+              ctx.textBaseline = 'alphabetic';
+              ctx.fillStyle = text;
+              var fittedTitle = fitCanvasText(ctx, title, CONTENT_WIDTH, 52, 28, '700');
+              ctx.fillText(fittedTitle, PAGE_PADDING, PAGE_PADDING + titleHeight);
+
+              if (subtitle) {
+                ctx.fillStyle = muted;
+                var fittedSubtitle = fitCanvasText(ctx, subtitle, CONTENT_WIDTH, 24, 14, '500');
+                ctx.fillText(fittedSubtitle, PAGE_PADDING, PAGE_PADDING + titleHeight + subtitleHeight);
+              }
+
+              var diagramX = PAGE_PADDING + (CONTENT_WIDTH - diagramWidth) / 2;
+              var diagramY = headerTotalHeight + PAGE_PADDING;
+
+              ctx.drawImage(img, diagramX, diagramY, diagramWidth, diagramHeight);
+
+              if (cardElements.length > 0) {
+                var cardsY = diagramY + diagramHeight + CARDS_SPACING;
+                var cardWidth = (CONTENT_WIDTH) / cardElements.length;
+                var cardPadding = 20;
+
+                cardElements.forEach(function (card, index) {
+                  var cardX = PAGE_PADDING + index * cardWidth;
+
+                  var cardDotEl = card.querySelector('.card-dot');
+                  var cardDotClass = cardDotEl ? cardDotEl.className.baseVal : '';
+                  var dotColorMap = {
+                    'rose': '#fb7185',
+                    'amber': '#fbbf24',
+                    'violet': '#a78bfa',
+                    'cyan': '#22d3ee',
+                    'green': '#34d399'
+                  };
+                  var dotColor = '#94a3b8';
+                  Object.keys(dotColorMap).forEach(function (key) {
+                    if (cardDotClass.indexOf(key) !== -1) {
+                      dotColor = dotColorMap[key];
+                    }
+                  });
+
+                  ctx.fillStyle = dotColor;
+                  ctx.beginPath();
+                  ctx.arc(cardX + cardPadding, cardsY + 20, 8, 0, Math.PI * 2);
+                  ctx.fill();
+
+                  var titleEl = card.querySelector('.card-title');
+                  var itemsEl = card.querySelector('.card-items');
+                  if (titleEl) {
+                    ctx.fillStyle = text;
+                    ctx.font = "600 13px 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+                    ctx.fillText(titleEl.textContent, cardX + cardPadding + 20, cardsY + 24);
+
+                    if (itemsEl) {
+                      var items = itemsEl.querySelectorAll('.card-item');
+                      ctx.fillStyle = muted;
+                      ctx.font = "400 11px 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+                      var itemsStartY = cardsY + 45;
+                      items.forEach(function (item, itemIndex) {
+                        var itemText = item.textContent || '';
+                        ctx.fillText(itemText.substring(0, 20), cardX + cardPadding + 20, itemsStartY + itemIndex * 15);
+                      });
+                    }
+                  }
+                });
+              }
+
+              URL.revokeObjectURL(svgUrl);
+              canvas.toBlob(function (blob) {
+                if (!blob) reject(exportError('viewer.export.error.toBlobNull', { label: 'Full diagram page' }));
+                else resolve(blob);
+              }, 'image/png');
+            } catch (error) {
+              URL.revokeObjectURL(svgUrl);
+              reject(error);
+            }
+          };
+          img.onerror = function (e) {
+            URL.revokeObjectURL(svgUrl);
+            reject(e);
+          };
+          img.src = svgUrl;
+        });
+      }
+
+      function runPageExport() {
+        close(true);
+        clearExportReceipt();
+        return renderPageExport().then(function (blob) {
+          recordExportReceipt('page', blob, true, { width: 3200, height: 0 });
+          download(blob, diagramFilename() + '-page.png');
+          toast(viewerText('viewer.export.downloadedPage'));
+          return blob;
+        }).catch(function (err) {
+          console.error(err);
+          var technicalMessage = err && err.message ? err.message : 'page';
+          var message = exportMessage(err);
+          document.documentElement.setAttribute('data-last-export-error-format', 'page');
+          document.documentElement.setAttribute('data-last-export-error', technicalMessage);
+          alert(viewerText('viewer.export.failed', { message: message }));
+        });
+      }
+
       function runReachShareCard() {
         close(false);
         clearExportReceipt();
@@ -7024,6 +7178,9 @@
       }
 
       menu.addEventListener('click', function (e) {
+        var pageBtn = e.target.closest('button[data-action="page"]');
+        if (pageBtn && !pageBtn.disabled) { runPageExport(); return; }
+
         var routeShareCardBtn = e.target.closest('button[data-action="route-share-card"]');
         if (routeShareCardBtn && !routeShareCardBtn.disabled && !routeShareCardBtn.hidden) { runRouteShareCard(); return; }
 

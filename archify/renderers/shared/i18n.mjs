@@ -184,6 +184,8 @@ const MESSAGE_PAIRS = {
   'viewer.export.card.defaultBadge': ['ARCHIFY · {preset} · {theme}', 'ARCHIFY · {preset} · {theme}'],
   'viewer.export.direction.upstream': ['Upstream', '上游'],
   'viewer.export.direction.downstream': ['Downstream', '下游'],
+  'viewer.export.fullPage': ['Full diagram page', '完整图表页面'],
+  'viewer.export.downloadedPage': ['Downloaded full diagram page', '已下载完整图表页面'],
   'viewer.export.error.canvasUnavailable': ['Canvas unavailable for {label}', '无法为{label}使用画布'],
   'viewer.export.error.contextUnavailable': ['2D canvas context unavailable for {label}', '无法为{label}创建二维画布上下文'],
   'viewer.export.error.toBlobUnavailable': ['canvas.toBlob unavailable for {label}', '{label}无法使用 canvas.toBlob'],
