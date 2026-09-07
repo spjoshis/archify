@@ -69,6 +69,43 @@ test('repository evidence accepts canonical HTTPS and common SSH remotes', () =>
   }
 });
 
+test('repository evidence accepts self-hosted Git origins (Gitea, GitLab, Forgejo)', () => {
+  const data = fixture();
+  const output = path.join(data.root, 'self-hosted.html');
+  const cases = [
+    {
+      authored: 'https://gitea.example.com/example/evidence-repo',
+      remotes: [
+        'https://gitea.example.com/example/evidence-repo.git',
+        'git@gitea.example.com:example/evidence-repo.git',
+        'ssh://git@gitea.example.com/example/evidence-repo.git',
+      ],
+    },
+    {
+      authored: 'https://gitlab.self.hosted/example/evidence-repo',
+      remotes: [
+        'https://gitlab.self.hosted/example/evidence-repo.git',
+        'https://token:secret@gitlab.self.hosted/example/evidence-repo.git',
+      ],
+    },
+    {
+      authored: 'https://code.forgejo.internal/example/evidence-repo',
+      remotes: ['https://code.forgejo.internal/example/evidence-repo'],
+    },
+  ];
+  for (const { authored, remotes } of cases) {
+    data.diagram.meta.repository.url = authored;
+    fs.writeFileSync(data.input, JSON.stringify(data.diagram, null, 2));
+    for (const remote of remotes) {
+      git(data.root, 'remote', 'set-url', 'origin', remote);
+      const result = run(['deliver', 'architecture', data.input, output, '--repo-root', data.root, '--json']);
+      assert.equal(result.status, 0, `${authored} vs ${remote}: ${result.stderr || result.stdout}`);
+      const receipt = JSON.parse(result.stdout);
+      assert.equal(receipt.evidence.repository, authored);
+    }
+  }
+});
+
 async function waitForState(url, predicate, timeoutMs = 12000) {
   const started = Date.now();
   let latest;
