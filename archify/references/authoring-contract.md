@@ -111,6 +111,18 @@ in the generated viewer.
 - Container borders are intentional pass-through geometry, but a long edge running along a structural border is not.
 - An edge crossing an unrelated opaque node is always a hard failure, independent of quality profile.
 
+### Via direction coordinate contract
+
+The first via point must align with the departure node's midpoint on the outbound axis:
+- For `top` or `bottom` fromSide: `via[0].x === departure.x`
+- For `left` or `right` fromSide: `via[0].y === departure.y`
+
+Similarly, the final via point must align with the arrival node's midpoint on the inbound axis:
+- For `top` or `bottom` toSide: `via[last].x === arrival.x`
+- For `left` or `right` toSide: `via[last].y === arrival.y`
+
+Departure and arrival points are always anchored at the side **midpoints** of their respective nodes — not at freely choosable edge positions. This constraint is enforced at runtime; knowing it in advance prevents "trigger the error once to learn the rule" iteration cycles. Always verify that your explicit `via` points satisfy this coordinate identity before running validation.
+
 ### Spacing and labels
 
 Spacing recommendations mean clear gap between boxes, not center distance. A 200px center distance between 165px-wide nodes leaves only 35px of clear gap.
