@@ -432,4 +432,64 @@ test('render output check: endpoint stubs from 8px pass while cramped interior t
   assert.match(rhythm.details[0], /\[composition\/short-interior-segment\] showcase relationship id "tight"/);
 });
 
+test('boundary membership: non-member fully contained in boundary frame is an error at showcase', () => {
+  const { code, result } = checkHtml('boundary-contained', `
+    <g data-node-id="app_a">
+      <rect x="260" y="40" width="150" height="60" rx="6" class="c-mask"/>
+    </g>
+    <g data-node-id="app_b">
+      <rect x="260" y="320" width="150" height="60" rx="6" class="c-mask"/>
+    </g>
+    <g data-node-id="third_party">
+      <rect x="260" y="180" width="150" height="60" rx="6" class="c-mask"/>
+    </g>
+    <rect data-composition-frame-kind="region" data-composition-frame-id="0" data-composition-frame-label="our private network" data-boundary-wraps="app_a,app_b" x="200" y="20" width="250" height="380" rx="12" class="c-region" stroke-width="1"/>
+  `, 'showcase', '0 0 600 480');
+
+  assert.notEqual(code, 0);
+  assert.deepEqual(result.composition.summary, { errors: 1, warnings: 0 });
+  const issue = result.composition.issues.find((item) => item.code === 'composition/boundary-membership-contained');
+  assert.equal(issue?.severity, 'error');
+  assert.equal(issue?.componentId, 'third_party');
+});
+
+test('boundary membership: non-member partially overlapping boundary frame is a warning at showcase', () => {
+  const { code, result } = checkHtml('boundary-overlap', `
+    <g data-node-id="app_a">
+      <rect x="260" y="40" width="150" height="60" rx="6" class="c-mask"/>
+    </g>
+    <g data-node-id="app_b">
+      <rect x="260" y="320" width="150" height="60" rx="6" class="c-mask"/>
+    </g>
+    <g data-node-id="audit">
+      <rect x="100" y="150" width="150" height="60" rx="6" class="c-mask"/>
+    </g>
+    <rect data-composition-frame-kind="region" data-composition-frame-id="0" data-composition-frame-label="our private network" data-boundary-wraps="app_a,app_b" x="200" y="20" width="250" height="380" rx="12" class="c-region" stroke-width="1"/>
+  `, 'showcase', '0 0 600 480');
+
+  assert.equal(code, 0);
+  assert.deepEqual(result.composition.summary, { errors: 0, warnings: 1 });
+  const issue = result.composition.issues.find((item) => item.code === 'composition/boundary-membership-overlap');
+  assert.equal(issue?.severity, 'warning');
+  assert.equal(issue?.componentId, 'audit');
+});
+
+test('boundary membership: member component inside boundary frame passes clean', () => {
+  const { code, result } = checkHtml('boundary-member', `
+    <g data-node-id="app_a">
+      <rect x="260" y="40" width="150" height="60" rx="6" class="c-mask"/>
+    </g>
+    <g data-node-id="app_b">
+      <rect x="260" y="320" width="150" height="60" rx="6" class="c-mask"/>
+    </g>
+    <rect data-composition-frame-kind="region" data-composition-frame-id="0" data-composition-frame-label="our private network" data-boundary-wraps="app_a,app_b" x="200" y="20" width="250" height="380" rx="12" class="c-region" stroke-width="1"/>
+  `, 'showcase', '0 0 600 480');
+
+  assert.equal(code, 0);
+  assert.equal(result.composition.summary.errors, 0);
+  assert.equal(result.composition.summary.warnings, 0);
+  const issues = result.composition.issues.filter((item) => item.code?.startsWith('composition/boundary-membership'));
+  assert.equal(issues.length, 0);
+});
+
 process.on('exit', () => fs.rmSync(tmp, { recursive: true, force: true }));

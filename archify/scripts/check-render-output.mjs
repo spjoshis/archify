@@ -85,6 +85,7 @@ if (svgMatches.length === 1) {
   );
   const relationshipCrossings = collectRelationshipCrossings(arrows);
   const compositionFrames = collectCompositionFrames(beforeLegend);
+  const componentNodes = collectComponentNodes(beforeLegend);
   const containerBorderRuns = collectBorderRuns({
     routedRelations: arrows
       .filter((arrow) => arrow.from && arrow.to && arrow.borderSegments.length)
@@ -95,6 +96,7 @@ if (svgMatches.length === 1) {
       })),
     frames: compositionFrames,
   });
+  const boundaryMembership = collectBoundaryMembership(componentNodes, compositionFrames);
   const routedRelationships = arrows
     .filter((arrow) => arrow.from && arrow.to && arrow.routePoints.length)
     .map((arrow) => ({ relation: arrow, relationIndex: arrow.index, points: arrow.routePoints }));
@@ -118,18 +120,25 @@ if (svgMatches.length === 1) {
   const rhythmIsError = qualityProfile === 'showcase';
   const labelClearanceIsError = qualityProfile === 'showcase';
   const desktopReadabilityIsError = qualityProfile === 'showcase';
+  const boundaryMembershipContainedIsError = qualityProfile === 'showcase';
+  const boundaryMembershipOverlapIsWarning = true;
+  const boundaryMembershipContained = boundaryMembership.filter((hit) => hit.type === 'contained');
+  const boundaryMembershipOverlap = boundaryMembership.filter((hit) => hit.type === 'overlap');
   const compositionErrors = (qualityGatesEnforced ? containerBorderRuns.length : 0)
     + (crossingIsError ? relationshipCrossings.length : 0)
     + (corridorIsError ? ambiguousCorridors.length : 0)
     + (labelClearanceIsError ? labelRouteClearance.length : 0)
     + (rhythmIsError ? routeRhythmIssues.length : 0)
-    + (desktopReadabilityIsError && desktopReadabilityIssue ? 1 : 0);
+    + (desktopReadabilityIsError && desktopReadabilityIssue ? 1 : 0)
+    + (boundaryMembershipContainedIsError ? boundaryMembershipContained.length : 0);
   const compositionWarnings = (qualityGatesEnforced ? 0 : containerBorderRuns.length)
     + (crossingIsError ? 0 : relationshipCrossings.length)
     + (corridorIsError ? 0 : ambiguousCorridors.length)
     + (labelClearanceIsError ? 0 : labelRouteClearance.length)
     + (rhythmIsError ? 0 : routeRhythmIssues.length)
-    + (desktopReadabilityIsError || !desktopReadabilityIssue ? 0 : 1);
+    + (desktopReadabilityIsError || !desktopReadabilityIssue ? 0 : 1)
+    + (!boundaryMembershipContainedIsError ? boundaryMembershipContained.length : 0)
+    + (boundaryMembershipOverlapIsWarning ? boundaryMembershipOverlap.length : 0);
   composition = {
     schemaVersion: 1,
     profile: qualityProfile,
@@ -148,6 +157,8 @@ if (svgMatches.length === 1) {
         : null,
       desktopReadabilityIssues: desktopReadabilityIssue ? 1 : 0,
       minProjectedNodeTextPx: desktopReadabilityIssue?.projectedFontPx ?? null,
+      boundaryMembershipContainedIssues: boundaryMembershipContained.length,
+      boundaryMembershipOverlapIssues: boundaryMembershipOverlap.length,
       ...roundedRouteMetrics(routeMetrics),
     },
     suggestedLimits: { bendsPerRelationship: 2, stretch: 1.35, segmentPx: 16, microSegmentPx: 8 },
@@ -219,6 +230,17 @@ if (svgMatches.length === 1) {
         projectedFontPx: desktopReadabilityIssue.projectedFontPx,
         minimumProjectedFontPx: MIN_PROJECTED_NODE_TEXT_PX,
       }] : []),
+      ...boundaryMembership.map((hit) => ({
+        severity: hit.type === 'contained'
+          ? (boundaryMembershipContainedIsError ? 'error' : 'warning')
+          : 'warning',
+        code: `composition/boundary-membership-${hit.type}`,
+        componentId: hit.componentId,
+        componentLabel: hit.componentLabel,
+        frame: frameRecord(hit.frame),
+        componentRect: roundedRect(hit.componentRect),
+        frameRect: roundedRect(hit.frameRect),
+      })),
     ],
   };
   addCheck(
@@ -434,6 +456,7 @@ function collectCompositionFrames(fragment) {
         width: numberAttr(attrs, 'width'),
         height: numberAttr(attrs, 'height'),
         radius: numberAttr(attrs, 'rx') || 0,
+        wraps: (attrs['data-boundary-wraps'] || '').split(',').filter(Boolean),
       };
       if ([frame.x, frame.y, frame.width, frame.height].every(Number.isFinite)) frames.push(frame);
       continue;
@@ -829,6 +852,94 @@ function isCommand(token) {
 
 function isPoint(point) {
   return Array.isArray(point) && point.length === 2 && point.every(Number.isFinite);
+}
+
+function collectComponentNodes(fragment) {
+  const nodes = [];
+  for (const match of fragment.matchAll(/<g\b[^>]*data-node-id="([^"]*)"[^>]*>/gi)) {
+    const attrs = parseAttrs(match[0]);
+    const nodeId = attrs['data-node-id'];
+    if (!nodeId) continue;
+
+    // Find the rect within this group to get dimensions
+    const groupStart = fragment.indexOf(match[0]);
+    const groupEnd = fragment.indexOf('</g>', groupStart);
+    if (groupEnd === -1) continue;
+    const groupFragment = fragment.slice(groupStart, groupEnd);
+
+    const rectMatch = groupFragment.match(/<rect\b[^>]*/);
+    if (!rectMatch) continue;
+
+    const rectAttrs = parseAttrs(rectMatch[0]);
+    const rect = {
+      x: numberAttr(rectAttrs, 'x'),
+      y: numberAttr(rectAttrs, 'y'),
+      width: numberAttr(rectAttrs, 'width'),
+      height: numberAttr(rectAttrs, 'height'),
+    };
+
+    if ([rect.x, rect.y, rect.width, rect.height].every(Number.isFinite)) {
+      nodes.push({ nodeId, rect });
+    }
+  }
+  return nodes;
+}
+
+function collectBoundaryMembership(componentNodes, compositionFrames) {
+  const issues = [];
+
+  for (const frame of compositionFrames) {
+    // Only check boundary frames (those with wraps data)
+    if (!frame.wraps || !Array.isArray(frame.wraps) || frame.shape) continue;
+
+    const memberIds = new Set(frame.wraps);
+
+    for (const component of componentNodes) {
+      // Skip components that are members of this boundary
+      if (memberIds.has(component.nodeId)) continue;
+
+      // Check if component is fully contained or overlapping
+      const frameRect = { x: frame.x, y: frame.y, width: frame.width, height: frame.height };
+      const componentRect = component.rect;
+
+      const isFullyContained = isRectFullyContained(componentRect, frameRect);
+      const isOverlapping = isRectOverlapping(componentRect, frameRect);
+
+      if (isFullyContained) {
+        issues.push({
+          type: 'contained',
+          componentId: component.nodeId,
+          componentRect,
+          frame,
+          frameRect,
+        });
+      } else if (isOverlapping) {
+        issues.push({
+          type: 'overlap',
+          componentId: component.nodeId,
+          componentRect,
+          frame,
+          frameRect,
+        });
+      }
+    }
+  }
+
+  return issues;
+}
+
+function isRectFullyContained(inner, outer) {
+  return inner.x >= outer.x &&
+         inner.y >= outer.y &&
+         inner.x + inner.width <= outer.x + outer.width &&
+         inner.y + inner.height <= outer.y + outer.height;
+}
+
+function isRectOverlapping(a, b) {
+  return !(a.x + a.width <= b.x ||
+           b.x + b.width <= a.x ||
+           a.y + a.height <= b.y ||
+           b.y + b.height <= a.y);
 }
 
 function stripTags(value) {
