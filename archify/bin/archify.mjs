@@ -578,14 +578,19 @@ async function commandCompare(args) {
   const rawHeadCandidate = path.join(stagingDirectory, 'head.raw.html');
   const canonicalBaseInput = path.join(stagingDirectory, 'base.architecture.json');
   const canonicalHeadInput = path.join(stagingDirectory, 'head.architecture.json');
+  const baseSnapshotInput = path.join(stagingDirectory, 'base.input.json');
+  const headSnapshotInput = path.join(stagingDirectory, 'head.input.json');
   const htmlCandidate = path.join(stagingDirectory, path.basename(outputPath));
   const receiptCandidate = path.join(stagingDirectory, path.basename(receiptPath));
 
   try {
+    fs.writeFileSync(baseSnapshotInput, baseBuffer);
+    fs.writeFileSync(headSnapshotInput, headBuffer);
+
     let baseResult;
     let headResult;
     try {
-      renderValidatedArchitecture(basePath, rawBaseCandidate, qualityArgs.quality, repoArgs.repoRoot);
+      renderValidatedArchitecture(baseSnapshotInput, rawBaseCandidate, qualityArgs.quality, repoArgs.repoRoot);
     } catch (error) {
       const diagnosticEntry = error.diagnostics?.[0];
       reportCompareFailure({
@@ -599,7 +604,7 @@ async function commandCompare(args) {
       return;
     }
     try {
-      renderValidatedArchitecture(headPath, rawHeadCandidate, qualityArgs.quality, repoArgs.repoRoot);
+      renderValidatedArchitecture(headSnapshotInput, rawHeadCandidate, qualityArgs.quality, repoArgs.repoRoot);
     } catch (error) {
       const diagnosticEntry = error.diagnostics?.[0];
       reportCompareFailure({
